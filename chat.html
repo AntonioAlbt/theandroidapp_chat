@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+</head>
+<body>
+    <h1>Chat</h1>
+    <p>
+        Auth Key: <input name="password" id="passwordInput"><br>
+        API Version: <input name="api" id="apiInput"><br>
+        Name: <input name="name" id="nameInput"><br>
+        UID: <input name="uid" id="uidInput">
+    </p>
+    <p>connected: <span id="connectedInfo">no</span>, authed: <span id="authedInfo">no</span></p>
+    <!-- <button onclick="connect()">Connect</button>
+    <button onclick="auth()">Login</button>
+    <button onclick="fetchMsgs()">Fetch messages</button> -->
+    <button onclick="startup()">Startup</button>
+    <p style="margin-bottom: 8px;">
+        Messages:
+        <ul id="msgs"><li>not loaded</li></ul>
+    </p>
+    <p>
+        Message: <input id="messageInput">
+    </p>
+    <button onclick="send()">Send</button>
+
+    <script>
+        /** @type WebSocket */
+        let ws;
+        let aliving;
+        let msgListener = [];
+        let authed = false;
+        let uid = 0;
+
+        function connect() {
+            if (ws) {
+                ws.close(1000)
+                ws = undefined
+            }
+            console.log("connecting")
+            ws = new WebSocket("ws://localhost:3000/?auth=" + document.getElementById("passwordInput").value)
+            document.getElementById("connectedInfo").innerText = "not yet"
+            ws.onopen = function () {
+                console.log("connected")
+                document.getElementById("connectedInfo").innerText = "yes"
+            }
+            ws.onmessage = function (evt) {
+                console.log("message received:", evt.data)
+                msgListener.forEach((val) => val(evt.data))
+            }
+            aliving = setInterval(() => ws.send(JSON.stringify({"action": "alive"})), 5000)
+            ws.onclose = function () {
+                clearInterval(aliving)
+                aliving = undefined
+                console.log("connection closed")
+                document.getElementById("connectedInfo").innerText = "no"
+                document.getElementById("authedInfo").innerText = "no"
+                msgListener = [];
+                authed = false;
+                uid = 0;
+            }
+        }
+
+        function startup() {
+            connect()
+            setTimeout(auth, 300)
+            setTimeout(fetchMsgs, 600)
+        }
+
+        function auth() {
+            document.getElementById("authedInfo").innerText = "not yet"
+            msgListener.push((data) => {
+                const d = JSON.parse(data)
+                if (d.happening == "auth") {
+                    const success = d.success;
+                    console.log("auth success:", success)
+                    if (success) {
+                        document.getElementById("authedInfo").innerText = "yes"
+                        uid = d.uid
+                    }
+                }
+            })
+            msgListener.push((data) => {
+                const d = JSON.parse(data)
+                if (d.happening == "new-message") {
+                    msg(d)
+                }
+            })
+            ws.send(JSON.stringify({ "action": "auth", "name": document.getElementById("nameInput").value, "uid": Number.parseInt(document.getElementById("uidInput").value), "api": Number.parseInt(document.getElementById("apiInput").value) }))
+        }
+
+        function fetchMsgs() {
+            console.log("fetching messages")
+            msgListener.push(function (data) {
+                const d = JSON.parse(data)
+                if (d.happening == "get") {
+                    document.getElementById("msgs").innerHTML = "";
+                    d.data.forEach(msg)
+                    console.log("fetched " + d.data.length + " messages")
+                }
+            })
+            ws.send(JSON.stringify({"action":"get"}))
+        }
+
+        function send() {
+            ws.send(JSON.stringify({action: "send", content: document.getElementById("messageInput").value}))
+            document.getElementById("messageInput").value = ""
+        }
+
+        function msg(d) {
+            const el = document.createElement("li")
+            el.innerText = d.name + " (" + d.uid + (d.uid == uid ? ", du!" : "") + ")" + ": " + d.content
+            document.getElementById("msgs").appendChild(el)
+        }
+    </script>
+</body>
+</html>
